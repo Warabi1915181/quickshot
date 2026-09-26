@@ -7,9 +7,26 @@ import QuickShotCore
 final class OCRReviewTextView: NSTextView {
     var onReturn: (() -> Void)?
     var onEscape: (() -> Void)?
+    private let backingTextStorage: NSTextStorage?
 
     override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
-        super.init(frame: frameRect, textContainer: container)
+        // The designated initializer does not create a text system for a nil container.
+        // Supply one so assigning `string` has storage and glyphs to display.
+        let textContainer: NSTextContainer
+        if let container {
+            textContainer = container
+            backingTextStorage = nil
+        } else {
+            let storage = NSTextStorage()
+            backingTextStorage = storage
+            let manager = NSLayoutManager()
+            textContainer = NSTextContainer(size: NSSize(
+                width: frameRect.width, height: CGFloat.greatestFiniteMagnitude
+            ))
+            storage.addLayoutManager(manager)
+            manager.addTextContainer(textContainer)
+        }
+        super.init(frame: frameRect, textContainer: textContainer)
         isEditable = false
         isSelectable = true
         isRichText = false

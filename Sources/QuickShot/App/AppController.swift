@@ -263,6 +263,11 @@ final class AppController {
         let suggested = workflow.adapters.files.makeDownloadURL(date: workflow.now())
         panel.nameFieldStringValue = suggested.lastPathComponent
         panel.message = "Save flattened PNG"
+        // The chip lives in a `.nonactivatingPanel` thumbnail, so clicking it never
+        // makes QuickShot frontmost. `NSSavePanel.begin` presents app-modally and
+        // does not activate, so the sheet is ordered behind whatever app the user was
+        // in. Activate first so the dialog is the outermost window.
+        NSApp.activate(ignoringOtherApps: true)
         panel.begin { [weak self] response in
             guard let self, response == .OK, let url = panel.url else { return }
             self.workflow.dispatch(.saveAs(id, url))

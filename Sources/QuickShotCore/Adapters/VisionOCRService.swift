@@ -11,7 +11,8 @@ final class VisionOCRService: OCRServicing, @unchecked Sendable {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = true
-        // recognitionLanguages intentionally unset (story 48).
+        // Detect the script instead of relying on Vision's default language (story 48).
+        request.automaticallyDetectsLanguage = true
         // minimumTextHeight left at default.
 
         if let region {

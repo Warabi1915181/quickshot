@@ -21,6 +21,11 @@ let package = Package(
             dependencies: ["QuickShotCore"],
             path: "Tests/QuickShotCoreTests"
         ),
+        .testTarget(
+            name: "QuickShotUITests",
+            dependencies: ["QuickShot"],
+            path: "Tests/QuickShotUITests"
+        ),
     ],
     swiftLanguageModes: [.v5]
 )

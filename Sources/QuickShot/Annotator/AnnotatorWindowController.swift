@@ -29,6 +29,7 @@ public final class AnnotatorWindowController: NSWindowController, NSWindowDelega
     private var activeTool: AnnotationTool = .arrow
     private var strokeColor: RGBAColor = .red
     private var strokeWidth: Double = 4
+    private var fontSize: Double = 44
 
     public init(
         state: AnnotatorState,
@@ -190,6 +191,11 @@ public final class AnnotatorWindowController: NSWindowController, NSWindowDelega
             strokeWidth = width
             canvas.strokeWidth = width
         }
+        toolbar.onChangeFontSize = { [weak self] size in
+            guard let self else { return }
+            fontSize = size
+            canvas.fontSize = size
+        }
         toolbar.onUndo = { [weak self] in self?.performUndo() }
         toolbar.onRedo = { [weak self] in self?.performRedo() }
         toolbar.onOCR = { [weak self] in
@@ -219,6 +225,13 @@ public final class AnnotatorWindowController: NSWindowController, NSWindowDelega
         canvas.activeTool = activeTool
         canvas.strokeColor = strokeColor
         canvas.strokeWidth = strokeWidth
+        canvas.fontSize = fontSize
+        canvas.onTextStyleChange = { [weak self] color, size in
+            guard let self else { return }
+            strokeColor = color
+            fontSize = size
+            syncChrome()
+        }
         canvas.onApply = { [weak self] transform in
             self?.editor.apply(transform)
         }
@@ -232,6 +245,7 @@ public final class AnnotatorWindowController: NSWindowController, NSWindowDelega
             selectedTool: activeTool,
             color: strokeColor,
             strokeWidth: strokeWidth,
+            fontSize: fontSize,
             canUndo: editor.canUndo,
             canRedo: editor.canRedo,
             cropPending: canvas.pendingCrop != nil

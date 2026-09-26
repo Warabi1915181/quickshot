@@ -6,3 +6,7 @@ xcuserdata/
 DerivedData/
 .swiftpm/
 Package.resolved
+/SPEC.md
+/.agents/
+/.claude/
+/skills-lock.json

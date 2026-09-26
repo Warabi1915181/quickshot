@@ -14,7 +14,9 @@ final class ThumbnailPanel: NSPanel {
         level = .floating
         isOpaque = false
         backgroundColor = .clear
-        hasShadow = true
+        // The card view draws its own rounded shadow; a window shadow would add
+        // a second, square one around the panel's transparent margin.
+        hasShadow = false
         hidesOnDeactivate = false
         becomesKeyOnlyIfNeeded = false
         isMovableByWindowBackground = false
@@ -95,7 +97,7 @@ final class ThumbnailItemController {
         // then blows the panel out to pixelWidth (full-screen bar bug).
         let fitted = ThumbnailView.fittedImageSize(forPixelSize: item.image.size)
         let image = NSImage(cgImage: item.image.cgImage, size: fitted)
-        thumbnailView.update(image: image, pixelSize: item.image.size)
+        thumbnailView.update(image: image)
         panel.setContentSize(preferredSize)
     }
 

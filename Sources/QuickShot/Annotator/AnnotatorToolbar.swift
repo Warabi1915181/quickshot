@@ -4,10 +4,11 @@ import QuickShotCore
 /// Top chrome: tools, style, undo/redo, output actions.
 /// Crop Apply/Cancel appear while a crop marquee is pending.
 @MainActor
-final class AnnotatorToolbar: NSView {
+final class AnnotatorToolbar: NSView, NSTextFieldDelegate {
     var onSelectTool: ((AnnotationTool) -> Void)?
     var onChangeColor: ((RGBAColor) -> Void)?
     var onChangeStrokeWidth: ((Double) -> Void)?
+    var onChangeFontSize: ((Double) -> Void)?
     var onUndo: (() -> Void)?
     var onRedo: (() -> Void)?
     var onOCR: (() -> Void)?
@@ -24,6 +25,9 @@ final class AnnotatorToolbar: NSView {
     private let colorWell = NSColorWell()
     private let widthSlider = NSSlider(value: 4, minValue: 1, maxValue: 24, target: nil, action: nil)
     private let widthLabel = NSTextField(labelWithString: "Width")
+    private let fontSizeField = NSTextField(string: "44")
+    private let fontSizeStepper = NSStepper()
+    private var selectedTool: AnnotationTool = .arrow
     private let undoButton = NSButton()
     private let redoButton = NSButton()
     private let cropBox = NSStackView()
@@ -52,19 +56,29 @@ final class AnnotatorToolbar: NSView {
         selectedTool: AnnotationTool,
         color: RGBAColor,
         strokeWidth: Double,
+        fontSize: Double = 44,
         canUndo: Bool,
         canRedo: Bool,
         cropPending: Bool
     ) {
+        self.selectedTool = selectedTool
         if let index = Self.tools.firstIndex(of: selectedTool) {
             toolControl.selectedSegment = index
         }
         if colorWell.color != color.nsColor {
             colorWell.color = color.nsColor
         }
-        if widthSlider.doubleValue != strokeWidth {
-            widthSlider.doubleValue = strokeWidth
-        }
+        let isText = selectedTool == .text
+        widthSlider.minValue = isText ? 8 : 1
+        widthSlider.maxValue = isText ? 96 : 24
+        widthSlider.doubleValue = isText ? fontSize : strokeWidth
+        let label = isText ? "Font size" : "Stroke width"
+        widthSlider.toolTip = label
+        widthSlider.setAccessibilityLabel(label)
+        widthLabel.setAccessibilityLabel(label)
+        fontSizeField.isHidden = !isText
+        fontSizeStepper.isHidden = !isText
+        updateStyleLabel()
         undoButton.isEnabled = canUndo
         redoButton.isEnabled = canRedo
         cropBox.isHidden = !cropPending
@@ -105,6 +119,8 @@ final class AnnotatorToolbar: NSView {
         row.addArrangedSubview(separator())
         row.addArrangedSubview(colorWell)
         row.addArrangedSubview(widthLabel)
+        row.addArrangedSubview(fontSizeField)
+        row.addArrangedSubview(fontSizeStepper)
         row.addArrangedSubview(widthSlider)
         row.addArrangedSubview(separator())
         row.addArrangedSubview(undoButton)
@@ -140,7 +156,8 @@ final class AnnotatorToolbar: NSView {
         for (index, tool) in Self.tools.enumerated() {
             toolControl.setImage(Self.symbol(for: tool), forSegment: index)
             toolControl.setWidth(32, forSegment: index)
-            toolControl.setLabel(Self.accessibilityLabel(for: tool), forSegment: index)
+            // Segment labels render beside images; keep names in tooltips and image accessibility descriptions.
+            toolControl.setToolTip(Self.accessibilityLabel(for: tool), forSegment: index)
         }
         toolControl.toolTip = "Annotation tools (1–7)"
         toolControl.target = self
@@ -159,6 +176,20 @@ final class AnnotatorToolbar: NSView {
         widthLabel.font = .systemFont(ofSize: 11)
         widthLabel.textColor = .secondaryLabelColor
         widthLabel.setAccessibilityLabel("Stroke width")
+
+        fontSizeField.delegate = self
+        fontSizeField.setAccessibilityLabel("Font size in pixels")
+        fontSizeField.toolTip = "Font size in pixels (8–96)"
+        fontSizeField.widthAnchor.constraint(equalToConstant: 44).isActive = true
+        fontSizeField.isHidden = true
+        fontSizeStepper.minValue = 8
+        fontSizeStepper.maxValue = 96
+        fontSizeStepper.increment = 1
+        fontSizeStepper.valueWraps = false
+        fontSizeStepper.target = self
+        fontSizeStepper.action = #selector(fontSizeStepped(_:))
+        fontSizeStepper.setAccessibilityLabel("Adjust font size")
+        fontSizeStepper.isHidden = true
 
         widthSlider.toolTip = "Stroke width"
         widthSlider.target = self
@@ -262,8 +293,45 @@ final class AnnotatorToolbar: NSView {
         onChangeColor?(RGBAColor(sender.color))
     }
 
+    private func updateStyleLabel() {
+        widthLabel.stringValue = selectedTool == .text
+            ? "Size"
+            : "Width"
+        fontSizeField.stringValue = String(Int(widthSlider.doubleValue))
+        fontSizeStepper.doubleValue = widthSlider.doubleValue
+    }
+
+    private func changeFontSize(_ value: Double) {
+        guard value.isFinite else { return }
+        widthSlider.doubleValue = min(96, max(8, value.rounded()))
+        updateStyleLabel()
+        onChangeFontSize?(widthSlider.doubleValue)
+    }
+
+    @objc private func fontSizeStepped(_ sender: NSStepper) {
+        changeFontSize(sender.doubleValue)
+    }
+
+    func controlTextDidChange(_ notification: Notification) {
+        guard let field = notification.object as? NSTextField, field === fontSizeField,
+              let value = Double(field.stringValue), value.isFinite,
+              (8...96).contains(value) else { return }
+        widthSlider.doubleValue = value.rounded()
+        fontSizeStepper.doubleValue = widthSlider.doubleValue
+        onChangeFontSize?(widthSlider.doubleValue)
+    }
+
+    func controlTextDidEndEditing(_ notification: Notification) {
+        guard let field = notification.object as? NSTextField, field === fontSizeField else { return }
+        changeFontSize(Double(field.stringValue) ?? widthSlider.doubleValue)
+    }
+
     @objc private func widthChanged(_ sender: NSSlider) {
-        onChangeStrokeWidth?(sender.doubleValue)
+        if selectedTool == .text {
+            changeFontSize(sender.doubleValue)
+        } else {
+            onChangeStrokeWidth?(sender.doubleValue)
+        }
     }
 
     @objc private func undoTapped() { onUndo?() }

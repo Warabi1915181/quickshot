@@ -3,10 +3,18 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 SIGNING_IDENTITY=${QUICKSHOT_SIGNING_IDENTITY:-}
 if [[ -z "$SIGNING_IDENTITY" ]]; then
-  echo "Set QUICKSHOT_SIGNING_IDENTITY to a code-signing certificate name or SHA-1 hash." >&2
-  echo "Ad-hoc signing changes QuickShot's Screen Recording identity after each rebuild." >&2
+  # Fall back to the first Apple Development identity in the keychain. A stable
+  # real identity keeps QuickShot's Screen Recording permission across rebuilds
+  # (ad-hoc signing would change it every time).
+  SIGNING_IDENTITY=$(security find-identity -v -p codesigning \
+    | awk -F'"' '/Apple Development/ {print $2; exit}')
+fi
+if [[ -z "$SIGNING_IDENTITY" ]]; then
+  echo "No Apple Development signing identity found in the keychain." >&2
+  echo "Set QUICKSHOT_SIGNING_IDENTITY to a certificate name or SHA-1 hash." >&2
   exit 1
 fi
+echo "Signing with: $SIGNING_IDENTITY"
 swift build -c release
 APP=build/QuickShot.app
 STAGING_APP=build/QuickShot-staging.app

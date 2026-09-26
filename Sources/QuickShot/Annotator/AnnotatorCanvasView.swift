@@ -32,6 +32,10 @@ final class AnnotatorCanvasView: NSView {
         didSet { needsDisplay = true }
     }
 
+    var fontSize: Double = 44 {
+        didSet { updateTextEditorSize() }
+    }
+
     /// View points per image pixel. 1.0 = one pixel per point.
     private(set) var zoom: CGFloat = 1
 
@@ -54,6 +58,8 @@ final class AnnotatorCanvasView: NSView {
     private var dragCurrent: CGPoint?
     private var textOrigin: CGPoint?
     private var textEditor: NSTextField?
+    private var editingTextID: UUID?
+    var onTextStyleChange: ((RGBAColor, Double) -> Void)?
     private var cropDragMode: CropDragMode = .none
     private var hasFitOnce = false
 
@@ -68,7 +74,6 @@ final class AnnotatorCanvasView: NSView {
         case topLeft, top, topRight, right, bottomRight, bottom, bottomLeft, left
     }
 
-    private static let textFontSize: Double = 18
     private static let handleSize: CGFloat = 8
     private static let handleHitSlop: CGFloat = 6
 
@@ -253,7 +258,8 @@ final class AnnotatorCanvasView: NSView {
         case let .arrow(_, start, end, color, width):
             drawArrow(start: start, end: end, color: color, width: width)
 
-        case let .text(_, string, origin, color, fontSize):
+        case let .text(id, string, origin, color, fontSize):
+            guard id != editingTextID else { return }
             drawText(string, origin: origin, color: color, fontSize: fontSize)
 
         case let .rectangle(_, rect, stroke, strokeWidth):
@@ -518,15 +524,35 @@ final class AnnotatorCanvasView: NSView {
     // MARK: - Mouse
 
     override func mouseDown(with event: NSEvent) {
+        let view = convert(event.locationInWindow, from: nil)
+        if activeTool == .text, let field = textEditor, field.frame.contains(view) {
+            window?.makeFirstResponder(field)
+            return
+        }
         commitTextEditing()
         window?.makeFirstResponder(self)
-
-        let view = convert(event.locationInWindow, from: nil)
         let image = clampToImage(imagePoint(fromView: view))
 
         switch activeTool {
         case .text:
-            beginTextEditing(at: image)
+            if let mark = document.marks.reversed().first(where: { mark in
+                guard case let .text(_, string, origin, _, size) = mark else { return false }
+                let measured = (string as NSString).size(withAttributes: [
+                    .font: NSFont.systemFont(ofSize: CGFloat(size) * zoom)
+                ])
+                return CGRect(origin: viewPoint(fromImage: origin), size: measured)
+                    .insetBy(dx: -4, dy: -4).contains(view)
+            }), case let .text(id, string, origin, color, size) = mark {
+                editingTextID = id
+                strokeColor = color
+                fontSize = size
+                beginTextEditing(at: origin)
+                textEditor?.stringValue = string
+                onTextStyleChange?(color, size)
+                needsDisplay = true
+            } else {
+                beginTextEditing(at: image)
+            }
 
         case .crop:
             if let hit = hitTestHandle(at: image, view: view), let crop = activeCropRect() {
@@ -701,7 +727,7 @@ final class AnnotatorCanvasView: NSView {
     private func beginTextEditing(at origin: CGPoint) {
         textOrigin = origin
         let field = NSTextField(frame: .zero)
-        field.font = NSFont.systemFont(ofSize: Self.textFontSize * zoom)
+        field.font = NSFont.systemFont(ofSize: fontSize * zoom)
         field.textColor = strokeColor.nsColor
         field.backgroundColor = NSColor.textBackgroundColor.withAlphaComponent(0.85)
         field.isBordered = true
@@ -717,7 +743,18 @@ final class AnnotatorCanvasView: NSView {
         field.frame = CGRect(x: originView.x, y: originView.y - 4, width: min(width, 360), height: 28)
         addSubview(field)
         textEditor = field
+        updateTextEditorSize()
         window?.makeFirstResponder(field)
+    }
+
+    private func updateTextEditorSize() {
+        guard let field = textEditor else { return }
+        let font = NSFont.systemFont(ofSize: CGFloat(fontSize) * zoom)
+        field.font = font
+        field.currentEditor()?.font = font
+        var frame = field.frame
+        frame.size.height = max(28, ceil(font.ascender - font.descender + font.leading) + 8)
+        field.frame = frame
     }
 
     @objc private func textEditorCommitted(_ sender: NSTextField) {
@@ -728,19 +765,33 @@ final class AnnotatorCanvasView: NSView {
         guard let field = textEditor else { return }
         let string = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let origin = textOrigin
+        let existingID = editingTextID
+        editingTextID = nil
+        needsDisplay = true
         field.removeFromSuperview()
         textEditor = nil
         textOrigin = nil
 
-        guard !string.isEmpty, let origin else { return }
+        guard let origin else { return }
+        guard !string.isEmpty || existingID != nil else { return }
         let color = strokeColor
-        let fontSize = Self.textFontSize
+        let fontSize = self.fontSize
         onApply? { doc in
-            doc.marks.append(.text(id: UUID(), string: string, origin: origin, color: color, fontSize: fontSize))
+            if let existingID, let index = doc.marks.firstIndex(where: { $0.id == existingID }) {
+                if string.isEmpty {
+                    doc.marks.remove(at: index)
+                } else {
+                    doc.marks[index] = .text(id: existingID, string: string, origin: origin, color: color, fontSize: fontSize)
+                }
+            } else if !string.isEmpty {
+                doc.marks.append(.text(id: UUID(), string: string, origin: origin, color: color, fontSize: fontSize))
+            }
         }
     }
 
     func cancelTextEditing() {
+        editingTextID = nil
+        needsDisplay = true
         textEditor?.removeFromSuperview()
         textEditor = nil
         textOrigin = nil
