@@ -2,16 +2,17 @@ import AppKit
 import QuickShotCore
 import UniformTypeIdentifiers
 
-/// NSFilePromiseProvider + PNG pasteboard payload for thumbnail drags (story 30).
+/// One file URL + PNG pasteboard item for thumbnail drags (story 30).
 /// Success → onCompleted (story 31). Failed drop after a real drag → onFailed (story 55).
-final class ThumbnailDragPayload: NSObject, NSFilePromiseProviderDelegate, NSDraggingSource {
+final class ThumbnailDragPayload: NSObject, NSDraggingSource {
     private let captureID: PendingCapture.ID
     private let image: CapturedImage
     private let pngData: () -> Data?
     private let onCompleted: () -> Void
     private let onFailed: () -> Void
+    private let fileStore: ThumbnailDragFileStore
 
-    private var cachedPNG: Data?
+    private var fileURL: URL?
     private var finished = false
 
     init(
@@ -19,44 +20,48 @@ final class ThumbnailDragPayload: NSObject, NSFilePromiseProviderDelegate, NSDra
         image: CapturedImage,
         pngData: @escaping () -> Data?,
         onCompleted: @escaping () -> Void,
-        onFailed: @escaping () -> Void
+        onFailed: @escaping () -> Void,
+        fileStore: ThumbnailDragFileStore = .shared
     ) {
         self.captureID = captureID
         self.image = image
         self.pngData = pngData
         self.onCompleted = onCompleted
         self.onFailed = onFailed
+        self.fileStore = fileStore
         super.init()
     }
 
     func begin(in view: NSView, event: NSEvent) {
-        cachedPNG = resolvePNG()
-        guard cachedPNG != nil else {
-            finish(success: false)
-            return
-        }
-
-        let provider = NSFilePromiseProvider(fileType: UTType.png.identifier, delegate: self)
-        provider.userInfo = captureID
-
-        let dragImage = NSImage(cgImage: image.cgImage, size: view.bounds.size)
-        let promiseItem = NSDraggingItem(pasteboardWriter: provider)
-        promiseItem.setDraggingFrame(view.bounds, contents: dragImage)
-
-        var items = [promiseItem]
-        if let data = cachedPNG {
-            let pasteboardItem = NSPasteboardItem()
-            pasteboardItem.setData(data, forType: .png)
-            let dataItem = NSDraggingItem(pasteboardWriter: pasteboardItem)
-            dataItem.setDraggingFrame(view.bounds, contents: dragImage)
-            items.append(dataItem)
-        }
-
-        guard let window = view.window else {
+        guard let window = view.window, let items = makeDraggingItems(in: view.bounds) else {
             finish(success: false)
             return
         }
         window.beginDraggingSession(items: items, event: event, source: self)
+    }
+
+    func makeDraggingItems(in bounds: NSRect) -> [NSDraggingItem]? {
+        guard let data = resolvePNG() else {
+            return nil
+        }
+        let url: URL
+        do {
+            url = try fileStore.writePNG(data, captureID: captureID)
+        } catch {
+            return nil
+        }
+        if let fileURL { fileStore.removeFile(at: fileURL) }
+        fileURL = url
+
+        // These are alternate representations of ONE capture, not separate items.
+        let pasteboardItem = NSPasteboardItem()
+        pasteboardItem.setData(data, forType: .png)
+        // AppKit also exposes file URLs as the legacy NSFilenamesPboardType
+        // filename list that WezTerm reads. Legacy types cannot be set on items.
+        pasteboardItem.setString(url.absoluteString, forType: .fileURL)
+        let item = NSDraggingItem(pasteboardWriter: pasteboardItem)
+        item.setDraggingFrame(bounds, contents: NSImage(cgImage: image.cgImage, size: bounds.size))
+        return [item]
     }
 
     private func resolvePNG() -> Data? {
@@ -84,41 +89,10 @@ final class ThumbnailDragPayload: NSObject, NSFilePromiseProviderDelegate, NSDra
         if success {
             onCompleted()
         } else {
+            if let fileURL { fileStore.removeFile(at: fileURL) }
+            fileURL = nil
             onFailed()
         }
-    }
-
-    // MARK: - NSFilePromiseProviderDelegate
-
-    func filePromiseProvider(
-        _ provider: NSFilePromiseProvider,
-        fileNameForType fileType: String
-    ) -> String {
-        "QuickShot Capture.png"
-    }
-
-    func filePromiseProvider(
-        _ provider: NSFilePromiseProvider,
-        writePromiseTo url: URL,
-        completionHandler: @escaping (Error?) -> Void
-    ) {
-        guard let data = cachedPNG ?? resolvePNG() else {
-            completionHandler(WorkflowError.dragFailed)
-            return
-        }
-        do {
-            try data.write(to: url, options: .atomic)
-            completionHandler(nil)
-        } catch {
-            completionHandler(error)
-        }
-    }
-
-    func filePromiseProvider(
-        _ provider: NSFilePromiseProvider,
-        didFailWithError error: Error
-    ) {
-        finish(success: false)
     }
 
     // MARK: - NSDraggingSource

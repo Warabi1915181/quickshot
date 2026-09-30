@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        // Story 53: pending captures are discarded. No disk write.
+        // Pending captures are discarded; temporary drag exports are not history.
+        ThumbnailDragFileStore.shared.cleanup()
     }
 }

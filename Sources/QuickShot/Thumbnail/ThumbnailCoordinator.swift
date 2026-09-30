@@ -16,7 +16,7 @@ public final class ThumbnailCoordinator {
     public var onDragCompleted: ((PendingCapture.ID) -> Void)?
     public var onDragFailed: ((PendingCapture.ID) -> Void)?
 
-    /// Image data for the drag promise. SHELL supplies PNG encoding or the CapturedImage.
+    /// Image data for drag export. SHELL supplies PNG encoding or the CapturedImage.
     public var pngDataForDrag: ((PendingCapture.ID) -> Data?)?
 
     private var controllers: [PendingCapture.ID: ThumbnailItemController] = [:]
